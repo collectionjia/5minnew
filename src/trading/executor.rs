@@ -22,7 +22,18 @@ impl TradingExecutor {
         let config = Config::builder().use_server_time(false).build();
         let mut auth_builder = Client::new("https://clob.polymarket.com", config)?.authentication_builder(&signer);
         if let Some(funder) = proxy_address { auth_builder = auth_builder.funder(funder).signature_type(SignatureType::Proxy); }
-        let client = auth_builder.authenticate().await?;
+        let client = match auth_builder.authenticate().await {
+            Ok(c) => c,
+            Err(e) => {
+                if proxy_address.is_some() {
+                    let config2 = Config::builder().use_server_time(false).build();
+                    let auth_builder2 = Client::new("https://clob.polymarket.com", config2)?.authentication_builder(&signer);
+                    auth_builder2.authenticate().await?
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         Ok(Self { client, private_key, max_order_size: Decimal::try_from(max_order_size_usdc).unwrap_or(dec!(5.0)), gtd_expiration_secs, arbitrage_order_type })
     }
     pub async fn buy_at_price(&self, token_id: U256, price: Decimal, size: Decimal) -> Result<polymarket_client_sdk::clob::types::response::PostOrderResponse> {
