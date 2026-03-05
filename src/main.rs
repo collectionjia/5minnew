@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn, debug};
 use polymarket_client_sdk::types::{B256};
+use std::sync::Arc;
 
 use config::Config;
 use market::discoverer::{MarketDiscoverer, MarketInfo, FIVE_MIN_SECS};
@@ -26,13 +27,13 @@ async fn main() -> Result<()> {
     utils::logger::init_logger()?;
     let cfg = Config::from_env()?;
 
-    let executor = TradingExecutor::new(
+    let executor = Arc::new(TradingExecutor::new(
         cfg.private_key.clone(),
         cfg.max_order_size_usdc,
         None,
         cfg.gtd_expiration_secs,
         cfg.arbitrage_order_type.clone(),
-    ).await?;
+    ).await?);
 
     let discoverer = MarketDiscoverer::new(cfg.crypto_symbols.clone());
 
@@ -83,7 +84,7 @@ async fn main() -> Result<()> {
                                     if qty < dec!(5.0) { qty = dec!(5.0); }
                                     one_dollar_attempted.insert(pair.market_id, true);
                                     info!("⏱️ 倒计时策略下单 | 市场:{} | 方向:{} | 价格:{:.4} | 份额:{:.2}", market_display, side_str, chosen_price, qty);
-                                    let exec = &executor;
+                                    let exec = executor.clone();
                                     let token = chosen_token; let price = chosen_price; let q = qty;
                                     tokio::spawn(async move {
                                         if let Err(e) = exec.buy_at_price(token, price, q).await { warn!("倒计时策略下单失败: {}", e); } else { info!("倒计时策略下单成功"); }
