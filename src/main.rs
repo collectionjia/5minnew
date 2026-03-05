@@ -14,6 +14,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn, debug};
 use polymarket_client_sdk::types::{B256};
+use std::sync::Arc;
 
 use config::Config;
 use market::discoverer::{MarketDiscoverer, MarketInfo, FIVE_MIN_SECS};
@@ -26,13 +27,13 @@ async fn main() -> Result<()> {
     utils::logger::init_logger()?;
     let cfg = Config::from_env()?;
 
-    let executor = TradingExecutor::new(
+    let executor = Arc::new(TradingExecutor::new(
         cfg.private_key.clone(),
         cfg.max_order_size_usdc,
         cfg.proxy_address,
         cfg.gtd_expiration_secs,
         cfg.arbitrage_order_type.clone(),
-    ).await?;
+    ).await?);
 
     let discoverer = MarketDiscoverer::new(cfg.crypto_symbols.clone());
 
@@ -50,7 +51,6 @@ async fn main() -> Result<()> {
         let mut stream = match monitor.create_orderbook_stream() { Ok(s) => s, Err(e) => { warn!("创建订单簿流失败: {}", e); sleep(Duration::from_secs(3)).await; continue; } };
 
         let window_end = chrono::DateTime::from_timestamp(ts + FIVE_MIN_SECS, 0).unwrap_or_else(|| Utc::now());
-        use std::sync::Arc;
         let one_dollar_attempted: Arc<DashMap<B256, (polymarket_client_sdk::types::U256, Decimal, Decimal, bool)>> = Arc::new(DashMap::new());
 
         info!(count = markets.len(), "开始倒计时策略监控");
@@ -84,14 +84,14 @@ async fn main() -> Result<()> {
 
                         if countdown_active {
                             if let Some(entry) = one_dollar_attempted.get(&pair.market_id) {
-                                let (token_id, entry_price, qty, active) = *entry;
+                                let (token_id, entry_price, qty, active) = entry.value().clone();
                                 if active {
                                     let best_bid = if token_id == pair.yes_book.asset_id { pair.yes_book.bids.first().map(|b| b.price) } else { pair.no_book.bids.first().map(|b| b.price) };
                                     if let Some(bid_price) = best_bid {
                                         if bid_price <= entry_price * dec!(0.9) {
                                             let _ = one_dollar_attempted.insert(pair.market_id, (token_id, entry_price, qty, false));
                                             let exec2 = executor.clone();
-                                            tokio::spawn(async move { let _ = exec2.sell_at_price(token_id, bid_price, qty).await; }); }
+                                            tokio::spawn(async move { let _ = exec2.sell_at_price(token_id, bid_price, qty).await; });
                                         }
                                     }
                                 }
@@ -102,11 +102,14 @@ async fn main() -> Result<()> {
                                     if y_price >= dec!(0.99) || n_price >= dec!(0.99) {
                                         debug!("价格>=0.99，倒计时策略跳过 | 市场:{}", market_display);
                                     } else {
-                                        let (chosen_token, chosen_price, side_str, vol_ok) = if y_price >= n_price { (pair.yes_book.asset_id, y_price, "YES", yes_total_vol > no_total_vol) } else { (pair.no_book.asset_id, n_price, "NO", no_total_vol > yes_total_vol) } { (pair.yes_book.asset_id, y_price, "YES") } else { (pair.no_book.asset_id, n_price, "NO") };
+                                        let (chosen_token, chosen_price, side_str, vol_ok) = if y_price >= n_price {
+                                            (pair.yes_book.asset_id, y_price, "YES", yes_total_vol > no_total_vol)
+                                        } else {
+                                            (pair.no_book.asset_id, n_price, "NO", no_total_vol > yes_total_vol)
+                                        };
                                         if !vol_ok { debug!("量价不匹配，跳过 | 市场:{}", market_display); } else { let mut qty = (dec!(1.0) / chosen_price) * dec!(100.0);
                                         qty = qty.floor() / dec!(100.0);
                                         if qty < dec!(5.0) { qty = dec!(5.0); }
-                                        one_dollar_attempted.insert(pair.market_id, true);
                                         info!("⏱️ 倒计时策略下单 | 市场:{} | 方向:{} | 价格:{:.4} | 份额:{:.2}", market_display, side_str, chosen_price, qty);
                                         let exec = executor.clone();
                                         let token = chosen_token; let price = chosen_price; let q = qty;
