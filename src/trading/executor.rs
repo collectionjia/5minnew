@@ -30,7 +30,7 @@ impl TradingExecutor {
                     let auth_builder2 = Client::new("https://clob.polymarket.com", config2)?.authentication_builder(&signer);
                     auth_builder2.authenticate().await?
                 } else {
-                    return Err(e);
+                    return Err(e.into());
                 }
             }
         };
