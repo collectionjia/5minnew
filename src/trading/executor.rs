@@ -32,3 +32,10 @@ impl TradingExecutor {
         Ok(self.client.post_order(signed).await?)
     }
 }
+
+    pub async fn sell_at_price(&self, token_id: U256, price: Decimal, size: Decimal) -> Result<polymarket_client_sdk::clob::types::response::PostOrderResponse> {
+        let signer = LocalSigner::from_str(&self.private_key)?.with_chain_id(Some(POLYGON));
+        let order = self.client.limit_order().token_id(token_id).side(Side::Sell).price(price).size(size).order_type(self.arbitrage_order_type).build().await?;
+        let signed = self.client.sign(&signer, order).await?;
+        Ok(self.client.post_order(signed).await?)
+    }

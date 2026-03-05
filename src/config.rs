@@ -1,5 +1,6 @@
 use anyhow::Result;
 use polymarket_client_sdk::clob::types::OrderType;
+use polymarket_client_sdk::types::Address;
 use std::env;
 
 fn parse_slippage(s: &str) -> [f64; 2] {
@@ -14,6 +15,7 @@ fn parse_order_type(s: &str) -> OrderType {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub private_key: String,
+    pub proxy_address: Option<Address>,
     pub crypto_symbols: Vec<String>,
     pub max_order_size_usdc: f64,
     pub slippage: [f64; 2],
@@ -26,6 +28,7 @@ impl Config {
         dotenvy::dotenv().ok();
         Ok(Self {
             private_key: env::var("POLYMARKET_PRIVATE_KEY").expect("POLYMARKET_PRIVATE_KEY must be set"),
+            proxy_address: env::var("POLYMARKET_PROXY_ADDRESS").ok().and_then(|addr| addr.parse().ok()),
             crypto_symbols: env::var("CRYPTO_SYMBOLS").unwrap_or_else(|_| "btc,eth,xrp,sol".to_string()).split(',').map(|s| s.trim().to_lowercase()).collect(),
             max_order_size_usdc: env::var("MAX_ORDER_SIZE_USDC").unwrap_or_else(|_| "5.0".to_string()).parse().unwrap_or(5.0),
             slippage: parse_slippage(&env::var("SLIPPAGE").unwrap_or_else(|_| "0.0,0.01".to_string())),
